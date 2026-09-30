@@ -267,6 +267,35 @@ build\ComicReader.exe --metatest "D:\Comics\some.cbz"
 （会遮蔽上下文属性导致恒为 null），因此统一改名为 `appController` / `appLibrary` /
 `appCover`。同理，子组件中不要把属性命名为 `model`（QML 保留名）。
 
+### 7-Zip 支持（.rar / .cbr / .7z / .cb7）——**未完成，暂不参与构建**
+
+**网络状况**：已明显改善。vcpkg 代理下载速度从最初的 ~20 KB/s 提升到
+~740 KB/s（约 36 倍），`vcpkg install 7zip:x64-windows` 仅耗时 **1.3 分钟**。
+因此瓶颈已不是网络，而是 **vcpkg 的 7zip 端口只提供内部头文件**：
+
+- 已安装：`7zip.dll`（导出 `CreateObject` 等 17 个函数）、C/CPP 头文件
+- **缺失**：`7zip.h`（声明 `CreateObject`）、`CInArchive`、`CInFile` 等常用封装
+- 7-Zip 26.x 的 `IInArchive` 与经典 SDK 签名不同：
+  `Open(IInStream*, ...)` 需要自行实现输入流，
+  `Extract(..., IArchiveExtractCallback*)` 需要自行实现解压回调
+
+**当前状态**：
+
+- `src/core/archive/SevenZipArchiveReader.cpp`：已写好读取器骨架
+  （内存输出流、打开回调、条目枚举、自然排序、线程安全互斥），
+  但**尚未补齐 `IInStream` 与 `IArchiveExtractCallback`**，暂时无法编译通过
+- 已用 `option(COMICREADER_ENABLE_7ZIP OFF)` 将其**排除出默认构建**，
+  现有功能不受影响
+
+启用方式（需先补完上述两个接口）：
+
+```powershell
+cmake -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=... -DCOMICREADER_ENABLE_7ZIP=ON
+```
+
+**替代方案**（更简单、零编译成本）：集成**外部 7-Zip 可执行文件**，
+在需要时调用 `7z.exe` 列出/解压指定条目，避免 COM 绑定。
+
 ### 已知问题
 
 - **翻译未编译**：当前 Qt 未包含 `qttools`（`lrelease`）组件，

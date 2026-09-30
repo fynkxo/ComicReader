@@ -63,6 +63,12 @@ bool isSupportedComic(const QString &path)
     const QString suffix = info.suffix().toLower();
     if (suffix == QStringLiteral("zip") || suffix == QStringLiteral("cbz"))
         return true;
+#ifdef COMICREADER_HAS_7ZIP
+    // 7-Zip 引擎支持：rar / cbr / 7z / cb7 / tar / gz 等
+    if (suffix == QStringLiteral("rar") || suffix == QStringLiteral("cbr")
+        || suffix == QStringLiteral("7z") || suffix == QStringLiteral("cb7"))
+        return true;
+#endif
     return isImageFile(suffix);
 }
 
@@ -73,6 +79,13 @@ IComicArchive *createComicArchive(const QString &path)
         return nullptr;
     if (info.isDir())
         return new FolderArchiveReader();
+
+    const QString suffix = info.suffix().toLower();
+#ifdef COMICREADER_HAS_7ZIP
+    if (suffix == QStringLiteral("rar") || suffix == QStringLiteral("cbr")
+        || suffix == QStringLiteral("7z") || suffix == QStringLiteral("cb7"))
+        return new SevenZipArchiveReader();
+#endif
     return new ZipArchiveReader();
 }
 

@@ -12,7 +12,8 @@ namespace ComicReader {
 /// 漫画来源类型
 enum class ArchiveType {
     ZipArchive,   ///< .zip / .cbz 等 ZIP 容器
-    ImageFolder   ///< 普通图片文件夹
+    ImageFolder,  ///< 普通图片文件夹
+    SevenZipArchive, ///< .rar / .cbr / .7z / .cb7（由 7-Zip 引擎处理）
 };
 
 /// 归档中的单页信息
@@ -93,6 +94,43 @@ private:
     QString m_dirPath;
     QList<PageEntry> m_pages;
 };
+
+#ifdef COMICREADER_HAS_7ZIP
+/// 7-Zip 引擎读取器：支持 .rar / .cbr / .7z / .cb7
+///
+/// IInArchive 实例非线程安全（内部持有文件读取位置），因此所有
+/// 调用都在 m_mutex 保护下进行；回调对象必须比归档活得久。
+class SevenZipArchiveReader : public IComicArchive
+{
+public:
+    SevenZipArchiveReader();
+    /// 必须在 ArchiveHandle 完整定义之后实现（unique_ptr 要求完整类型才能析构）
+    ~SevenZipArchiveReader() override;
+
+    bool open(const QString &path, QString *error) override;
+    QList<PageEntry> pages() const override;
+    QByteArray pageData(int index) const override;
+    QByteArray fileData(const QString &name) const override;
+    ArchiveType type() const override { return ArchiveType::SevenZipArchive; }
+
+private:
+    struct Entry {
+        QString name;
+        quint64 size = 0;
+        quint32 index = 0;
+        bool isDir = false;
+    };
+
+    /// 按 7-Zip 条目索引读取数据；调用方需持有 m_mutex
+    QByteArray extractLocked(quint32 entryIndex) const;
+
+    class ArchiveHandle;                 ///< 持有 IInArchive 与回调的内部实现
+    mutable QMutex m_mutex;
+    std::unique_ptr<ArchiveHandle> m_handle;
+    QList<Entry> m_entries;              ///< 全部非目录条目
+    QList<int> m_pageIndexes;            ///< m_entries 中属于漫画页的下标
+};
+#endif // COMICREADER_HAS_7ZIP
 
 /// 工厂：创建匹配的读取器，path 为空时返回 nullptr
 IComicArchive *createComicArchive(const QString &path);
