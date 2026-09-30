@@ -1,4 +1,5 @@
 #include <QCommandLineParser>
+#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -11,6 +12,7 @@
 
 #include "core/archive/ComicReaderController.h"
 #include "core/archive/IComicArchive.h"
+#include "core/archive/PageCache.h"
 
 int main(int argc, char *argv[])
 {
@@ -54,6 +56,107 @@ int main(int argc, char *argv[])
                 << " (" << ok << "/" << pages.size() << ")\n";
             out.flush();
             return ok == pages.size() ? 0 : 1;
+        }
+        if (qstrcmp(argv[i], "--cachetest") == 0) {
+            // 验证 LRU 缓存：同一页二次读取应命中缓存
+            QTextStream out(stdout);
+            if (i + 1 >= argc) {
+                out << "FAIL: --cachetest 需要提供漫画路径\n";
+                return 2;
+            }
+            const QString target = QFileInfo(QString::fromLocal8Bit(argv[i + 1]))
+                                       .absoluteFilePath();
+            ComicReader::PageCache cache(64ll * 1024 * 1024);
+            cache.resetStats();
+
+            // 1) 淘汰逻辑：容量 100 字节，放入 3 个各 60 字节
+            ComicReader::PageCache small(100);
+            small.insert(0, QByteArray(60, 'a'));
+            small.insert(1, QByteArray(60, 'b'));
+            small.insert(2, QByteArray(60, 'c'));
+            out << "容量淘汰: count=" << small.count()
+                << " used=" << small.usedBytes() << "B (上限 100B)\n";
+            const bool evictOk = small.usedBytes() <= 100;
+            out << (evictOk ? "  [OK] 未超容量\n" : "  [FAIL] 超出容量\n");
+
+            // 2) LRU 顺序：0 被淘汰，2 应仍在
+            const bool lruOk = !small.contains(0) && small.contains(2);
+            out << (lruOk ? "  [OK] LRU 正确淘汰最久未用页\n"
+                          : "  [FAIL] LRU 淘汰顺序错误\n");
+
+            // 3) 真实数据计时
+            std::unique_ptr<ComicReader::IComicArchive> archive(
+                ComicReader::createComicArchive(target));
+            QString error;
+            if (!archive || !archive->open(target, &error)) {
+                out << "FAIL: 打开失败: " << error << "\n";
+                return 2;
+            }
+            const auto pages = archive->pages();
+            if (pages.isEmpty()) {
+                out << "FAIL: 无页面\n";
+                return 2;
+            }
+
+            QElapsedTimer timer;
+            timer.start();
+            const QByteArray first = archive->pageData(0);
+            const qint64 coldMs = timer.elapsed();
+
+            timer.restart();
+            cache.insert(0, first);
+            const QByteArray second = cache.take(0);
+            const qint64 warmMs = timer.elapsed();
+
+            const bool hitOk = !second.isEmpty() && second == first;
+            out << "冷读取(解压): " << coldMs << " ms (" << first.size() << " 字节)\n";
+            out << "热读取(缓存): " << warmMs << " ms\n";
+            out << (hitOk ? "  [OK] 缓存内容与原始数据一致\n"
+                          : "  [FAIL] 缓存数据不一致\n");
+
+            // 4) 缓存容量压力测试：缓存仅容纳 2 页，连续写入 6 页应发生淘汰
+            //    但任何时刻已写入的页都应能取回（未被淘汰的那部分）
+            constexpr int kBenchPageBytes = 2 * 1024 * 1024;   // 2MB/页
+            constexpr int kBenchPages = 6;
+            ComicReader::PageCache bench(kBenchPageBytes * 2ll);  // 仅容纳 2 页
+            QByteArray pageData(kBenchPageBytes, 'x');
+
+            QElapsedTimer benchTimer;
+            benchTimer.start();
+            for (int p = 0; p < kBenchPages; ++p)
+                bench.insert(p, pageData);
+            const qint64 fillMs = benchTimer.elapsed();
+
+            // 缓存必须始终不超过容量
+            const bool capOk = bench.usedBytes() <= kBenchPageBytes * 2ll;
+            // 至少应保留最近写入的页
+            const bool newestOk = bench.contains(kBenchPages - 1);
+            // 最早写入的页应已被淘汰
+            const bool oldestEvicted = !bench.contains(0);
+
+            // 命中路径耗时（共享内存，仅复制引用计数）
+            benchTimer.restart();
+            qint64 retrieved = 0;
+            for (int p = 0; p < kBenchPages; ++p) {
+                if (!bench.take(p).isEmpty())
+                    ++retrieved;
+            }
+            const qint64 hitAllMs = benchTimer.elapsed();
+
+            out << "容量压力(" << kBenchPages << " 页 x "
+                << (kBenchPageBytes / 1024 / 1024) << "MB, 缓存 2 页): 写入 "
+                << fillMs << " ms, 命中 " << retrieved << " 页用时 " << hitAllMs
+                << " ms, 占用 " << (bench.usedBytes() / 1024 / 1024) << "MB\n";
+            out << (capOk ? "  [OK] 占用未超容量\n" : "  [FAIL] 超出容量\n");
+            out << (newestOk ? "  [OK] 保留最新写入的页\n" : "  [FAIL] 最新页被误淘汰\n");
+            out << (oldestEvicted ? "  [OK] 最早写入的页已淘汰\n"
+                                  : "  [FAIL] 最早页未被淘汰\n");
+
+            const bool benchOk = capOk && newestOk && oldestEvicted;
+            const bool allOk = evictOk && lruOk && hitOk && benchOk;
+            out << (allOk ? "CACHETEST PASSED" : "CACHETEST FAILED") << "\n";
+            out.flush();
+            return allOk ? 0 : 1;
         }
     }
 

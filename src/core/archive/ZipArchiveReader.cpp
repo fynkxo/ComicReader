@@ -152,6 +152,9 @@ QByteArray ZipArchiveReader::pageData(int index) const
 {
     if (index < 0 || index >= m_pageIndexes.size())
         return {};
+
+    // m_file 非线程安全：预加载线程与 GUI 线程可能并发读取
+    QMutexLocker locker(&m_mutex);
     if (!m_file.isOpen())
         return {};
 
@@ -249,6 +252,8 @@ QByteArray FolderArchiveReader::pageData(int index) const
 {
     if (index < 0 || index >= m_pages.size())
         return {};
+
+    // 每次使用独立的 QFile 实例，天然线程安全，无需加锁
     QFile file(QDir(m_dirPath).filePath(m_pages.at(index).name));
     if (!file.open(QIODevice::ReadOnly))
         return {};

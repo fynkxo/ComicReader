@@ -1,8 +1,11 @@
 #pragma once
 
+#include "PageCache.h"
+
 #include <QImage>
 #include <QObject>
 #include <QQuickImageProvider>
+#include <QSet>
 #include <QString>
 
 #include <memory>
@@ -50,11 +53,30 @@ signals:
     void statusMessageChanged();
 
 private:
+    /// 请求后台预加载当前页附近的页面
+    void schedulePreload();
+
+    /// 为单页提交预加载任务（去重后交给线程池）
+    void schedulePreloadOne(int index);
+
+    /// 在线程池中执行的实际预加载工作
+    void preloadPageInternal(int index, quint64 generation);
+
+    /// 预加载单个页面（同步，供测试/预热使用）
+    void preloadPage(int index);
+
     std::unique_ptr<IComicArchive> m_archive;
+    /// 页面缓存：pageImage() 为 const，但仍需写入缓存（记忆化副作用）
+    mutable PageCache m_cache;
     int m_pageCount = 0;
     int m_currentPage = 0;
     QString m_comicName;
     QString m_statusMessage;
+
+    /// 标记漫画已重新打开，使旧的在途预加载结果作废
+    quint64 m_generation = 0;
+    /// 已提交预加载的页索引，避免重复提交
+    QSet<int> m_preloadScheduled;
 };
 
 /// 向 QML 提供页面图像：image://comicpage/<index>

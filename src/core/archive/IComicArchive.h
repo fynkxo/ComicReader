@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QFile>
 #include <QList>
+#include <QMutex>
 #include <QString>
 #include <QStringList>
 
@@ -33,6 +34,7 @@ public:
     virtual QList<PageEntry> pages() const = 0;
 
     /// 读取指定页的原始图像字节
+    /// 注意：可能从后台线程调用，实现必须保证线程安全。
     virtual QByteArray pageData(int index) const = 0;
 
     virtual ArchiveType type() const = 0;
@@ -67,6 +69,7 @@ private:
     };
 
     mutable QFile m_file;
+    mutable QMutex m_mutex;        ///< 保护 m_file：后台线程可能并发读取
     QList<CentralEntry> m_entries;  ///< 含目录等全部条目
     QList<int> m_pageIndexes;        ///< m_entries 中属于漫画页的下标
 };

@@ -30,6 +30,8 @@ qt_add_executable(ComicReader
     src/core/archive/ZipArchiveReader.cpp
     src/core/archive/ComicReaderController.h
     src/core/archive/ComicReaderController.cpp
+    src/core/archive/PageCache.h
+    src/core/archive/PageCache.cpp
 )
 
 # ---- ZIP 解压依赖（zlib）----
