@@ -8,23 +8,59 @@ ApplicationWindow {
     width: 1024
     height: 768
     visible: true
-    title: controller && controller.pageCount > 0
-           ? qsTr("Comic Reader") + " - " + controller.comicName
+    title: appController && appController.pageCount > 0
+           ? qsTr("Comic Reader") + " - " + appController.comicName
            : qsTr("Comic Reader")
     color: "#1e1e1e"
 
-    // 由 C++ 注入的阅读控制器
-    property var controller: null
+    // 注意：appController / appLibrary / appCover 由 C++ 通过
+    // QQmlContext::setContextProperty 注入。不要在此处声明同名 property，
+    // 否则会遮蔽(context shadow)上下文属性，导致 QML 侧始终得到 null。
 
     header: ToolBar {
+        id: libraryBar
         visible: !root.readerOpen
+        // Basic 样式默认浅色背景，需显式设为深色以配合白色文字
+        background: Rectangle {
+            color: "#333333"
+        }
         RowLayout {
             anchors.fill: parent
+            anchors.leftMargin: 12
+            anchors.rightMargin: 12
+
             Label {
                 text: qsTr("Library")
                 font.pixelSize: 20
                 color: "#ffffff"
                 Layout.fillWidth: true
+            }
+
+            Label {
+                text: appLibrary
+                      ? qsTr("%n comic(s)", "", appLibrary.count)
+                      : ""
+                color: "#909090"
+                font.pixelSize: 12
+            }
+
+            Button {
+                text: qsTr("Add Folder...")
+                onClicked: scanFolderDialog.open()
+            }
+
+            Button {
+                text: qsTr("Open File...")
+                onClicked: fileDialog.open()
+            }
+
+            Button {
+                text: qsTr("Refresh")
+                enabled: appLibrary !== null
+                onClicked: {
+                    if (appCover) appCover.clearCache()
+                    appLibrary.refresh()
+                }
             }
         }
     }
@@ -37,50 +73,21 @@ ApplicationWindow {
         anchors.fill: parent
         currentIndex: root.readerOpen ? 1 : 0
 
-        // ---- 书架占位 ----
-        Rectangle {
-            color: "#2b2b2b"
+        // ---- 书架 ----
+        LibraryView {
+            comicModel: appLibrary
+            controller: appController
 
-            Column {
-                anchors.centerIn: parent
-                spacing: 14
-
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: qsTr("Your comic library will appear here")
-                    color: "#ffffff"
-                    font.pixelSize: 18
-                }
-
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: qsTr("Open a .zip / .cbz archive or an image folder to start reading")
-                    color: "#aaaaaa"
-                    font.pixelSize: 13
-                    horizontalAlignment: Text.AlignHCenter
-                    width: 480
-                    wrapMode: Text.WordWrap
-                }
-
-                // 打开按钮：使用系统文件对话框选择漫画
-                Button {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: qsTr("Open Comic...")
-                    onClicked: root.fileDialog.open()
-                }
-
-                Label {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: controller ? controller.statusMessage : ""
-                    color: "#88cc88"
-                    font.pixelSize: 12
-                }
+            onComicActivated: function (path) {
+                if (appController && appController.openComic(path))
+                    root.readerOpen = true
             }
+            onAddFolderRequested: scanFolderDialog.open()
         }
 
         // ---- 阅读器 ----
         ReaderView {
-            controller: root.controller
+            controller: appController
         }
     }
 
@@ -90,22 +97,35 @@ ApplicationWindow {
         title: qsTr("Open Comic")
         nameFilters: [qsTr("Comic archives (*.zip *.cbz)"), qsTr("All files (*)")]
         onAccepted: {
-            if (root.controller && root.controller.openComic(selectedFile.toString().replace("file:///", "")))
+            if (appController && appController.openComic(selectedFile.toString().replace("file:///", "")))
                 root.readerOpen = true
         }
     }
 
-    // 目录选择对话框
+    // 目录选择对话框：扫描并导入漫画
+    FolderDialog {
+        id: scanFolderDialog
+        title: qsTr("Add Comic Folder")
+        onAccepted: {
+            const path = selectedFolder.toString().replace("file:///", "")
+            if (appLibrary && appLibrary.scanFolder(path)) {
+                if (appCover) appCover.clearCache()
+                appLibrary.refresh()
+            }
+        }
+    }
+
+    // 目录选择对话框：直接以图片文件夹方式阅读
     FolderDialog {
         id: folderDialog
         title: qsTr("Open Image Folder")
         onAccepted: {
-            if (root.controller && root.controller.openComic(selectedFolder.toString().replace("file:///", "")))
+            if (appController && appController.openComic(selectedFolder.toString().replace("file:///", "")))
                 root.readerOpen = true
         }
     }
 
-    // 快捷键：Ctrl+O 打开归档，Ctrl+Shift+O 打开文件夹
+    // 快捷键：Ctrl+O 打开归档，Ctrl+Shift+O 打开图片文件夹，Ctrl+R 刷新书架
     Shortcut {
         sequences: [StandardKey.Open]
         onActivated: fileDialog.open()
@@ -116,18 +136,28 @@ ApplicationWindow {
         onActivated: folderDialog.open()
     }
 
-    // 打开文件夹入口
-    Rectangle {
-        anchors { top: parent.top; right: parent.right; topMargin: 8; rightMargin: 12 }
-        width: openFolderBtn.width
-        height: openFolderBtn.height
-        color: "transparent"
-        visible: !root.readerOpen
+    Shortcut {
+        sequence: "Ctrl+R"
+        onActivated: {
+            if (appLibrary) {
+                if (appCover) appCover.clearCache()
+                appLibrary.refresh()
+            }
+        }
+    }
 
-        Button {
-            id: openFolderBtn
-            text: qsTr("Open Folder...")
-            onClicked: folderDialog.open()
+    // 状态提示条
+    footer: ToolBar {
+        background: Rectangle { color: "#2a2a2a" }
+        visible: !root.readerOpen && appController && appController.statusMessage !== ""
+        height: visible ? 28 : 0
+        Label {
+            anchors.fill: parent
+            anchors.leftMargin: 12
+            verticalAlignment: Text.AlignVCenter
+            text: appController ? appController.statusMessage : ""
+            color: "#88cc88"
+            font.pixelSize: 12
         }
     }
 }

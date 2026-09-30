@@ -254,6 +254,19 @@ build\ComicReader.exe --metatest "D:\Comics\some.cbz"
   计数让在途的预加载结果作废。
 - 缓存命中时**不再重复解压**，翻页基本为纯内存操作。
 
+### 书架界面
+
+- 以网格展示数据库中的漫画：封面（自动取归档第 1 页并缓存）、标题、作者/系列
+- 封面下方显示阅读进度条与页码角标
+- 工具栏：Add Folder...（扫描导入）、Open File...、Refresh（Ctrl+R）
+- 封面由 `ComicCoverProvider` 在渲染线程按需生成，带内存缓存；
+  路径经模型的线程安全快照获取，渲染线程不直接访问数据库
+
+**QML 上下文属性注意事项**：`controller` / `libraryModel` / `coverProvider`
+通过 `QQmlContext::setContextProperty` 注入时，QML 中**不能声明同名 property**
+（会遮蔽上下文属性导致恒为 null），因此统一改名为 `appController` / `appLibrary` /
+`appCover`。同理，子组件中不要把属性命名为 `model`（QML 保留名）。
+
 ### 已知问题
 
 - **翻译未编译**：当前 Qt 未包含 `qttools`（`lrelease`）组件，

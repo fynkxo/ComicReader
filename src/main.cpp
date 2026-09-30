@@ -1,4 +1,4 @@
-﻿#include <QCommandLineParser>
+#include <QCommandLineParser>
 #include <cstdio>
 #include <QCoreApplication>
 #include <QDir>
@@ -19,6 +19,7 @@
 #include "core/archive/PageCache.h"
 #include "core/database/LibraryDatabase.h"
 #include "core/metadata/ComicInfoParser.h"
+#include "core/database/LibraryModel.h"
 
 int main(int argc, char *argv[])
 {
@@ -331,8 +332,14 @@ int main(int argc, char *argv[])
                                    : "  [FAIL] 字段解析不完整\n");
                         allOk = allOk && ok;
                     } else {
-                        out << "  [FAIL] 解析失败: " << error << "\n";
-                        allOk = false;
+                        // 归档内没有 ComicInfo.xml 属于正常情况（多数漫画不带元数据），
+                        // 此时仅校验健壮性用例，不计入失败。
+                        if (error.contains(QStringLiteral("未找到"))) {
+                            out << "  [SKIP] 该归档不含 ComicInfo.xml，跳过字段校验\n";
+                        } else {
+                            out << "  [FAIL] 解析失败: " << error << "\n";
+                            allOk = false;
+                        }
                     }
                 } else {
                     out << "  [FAIL] 打开归档失败: " << error << "\n";
@@ -359,6 +366,28 @@ int main(int argc, char *argv[])
             out << (allOk ? "METATEST PASSED" : "METATEST FAILED") << "\n";
             out.flush();
             return allOk ? 0 : 1;
+        }
+        if (qstrcmp(argv[i], "--addfolder") == 0 && i + 1 < argc) {
+            // 扫描目录并导入到正式书架（便于脚本化批量导入）
+            QCoreApplication app(argc, argv);
+            QCoreApplication::setOrganizationName(QStringLiteral("ComicReader"));
+            QCoreApplication::setOrganizationDomain(QStringLiteral("comicreader.local"));
+            QCoreApplication::setApplicationName(QStringLiteral("ComicReader"));
+            QTextStream out(stdout);
+            ComicReader::LibraryDatabase db;
+            QString error;
+            if (!db.open(ComicReader::LibraryDatabase::defaultDatabasePath(), &error)) {
+                out << "FAIL: 打开数据库失败: " << error << "\n";
+                return 2;
+            }
+            const QString dir =
+                QFileInfo(QString::fromLocal8Bit(argv[i + 1])).absoluteFilePath();
+            int skipped = 0;
+            const int added = db.importDirectory(dir, &skipped);
+            out << "扫描 " << dir << ": 新增 " << added << " 本, 跳过 " << skipped
+                << " 项, 书架现有 " << db.count() << " 本\n";
+            out.flush();
+            return 0;
         }
     }
 
@@ -409,6 +438,21 @@ int main(int argc, char *argv[])
     ComicReader::ComicReaderController controller;
     controller.setDatabase(library.isOpen() ? &library : nullptr);
 
+    // 书架模型与封面提供器（封面在渲染线程按需生成）
+    ComicReader::LibraryModel libraryModel(library.isOpen() ? &library : nullptr);
+    libraryModel.refresh();
+    ComicReader::ComicCoverProvider *coverProvider =
+        new ComicReader::ComicCoverProvider(&libraryModel);
+    engine.rootContext()->setContextProperty(QStringLiteral("appLibrary"),
+                                             &libraryModel);
+    engine.rootContext()->setContextProperty(QStringLiteral("appCover"),
+                                             coverProvider);
+    engine.addImageProvider(QStringLiteral("cover"), coverProvider);
+
+    // 阅读进度变化后刷新书架，使进度条与页码保持最新
+    QObject::connect(&controller, &ComicReader::ComicReaderController::currentPageChanged,
+                     &libraryModel, [&libraryModel] { libraryModel.refresh(); });
+
     // 退出前保存进度
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &controller,
                      [&controller] { controller.saveProgress(); });
@@ -421,7 +465,7 @@ int main(int argc, char *argv[])
         initialLoaded = controller.openComic(path);
     }
 
-    engine.rootContext()->setContextProperty(QStringLiteral("controller"), &controller);
+    engine.rootContext()->setContextProperty(QStringLiteral("appController"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("initialComicLoaded"),
                                              initialLoaded);
 

@@ -35,6 +35,8 @@ qt_add_executable(ComicReader
     src/core/archive/PageCache.cpp
     src/core/database/LibraryDatabase.h
     src/core/database/LibraryDatabase.cpp
+    src/core/database/LibraryModel.h
+    src/core/database/LibraryModel.cpp
     src/core/metadata/ComicInfoParser.h
     src/core/metadata/ComicInfoParser.cpp
 )
@@ -51,6 +53,7 @@ target_link_libraries(ComicReader PRIVATE ZLIB::ZLIB)
 qt_add_resources(ComicReader "qmlresources"
     PREFIX "/"
     FILES
+        qml/LibraryView.qml
         qml/Main.qml
         qml/ReaderView.qml
         qml/SinglePageView.qml

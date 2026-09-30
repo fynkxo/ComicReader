@@ -26,7 +26,8 @@ Item {
         id: topBar
         anchors { top: parent.top; left: parent.left; right: parent.right }
         height: 44
-        color: "#cc1e1e1e"
+        // Basic 样式浅色背景，改用不透明深色以保证文字可读
+        color: "#2a2a2a"
         visible: reader.controller && reader.controller.pageCount > 0
 
         RowLayout {
@@ -102,7 +103,8 @@ Item {
         id: bottomBar
         anchors { bottom: parent.bottom; left: parent.left; right: parent.right }
         height: 52
-        color: "#cc1e1e1e"
+        // Basic 样式浅色背景，改用不透明深色以保证文字可读
+        color: "#2a2a2a"
         visible: reader.controller && reader.controller.pageCount > 0
                  && reader.readingMode !== reader.modeWebtoon
 
