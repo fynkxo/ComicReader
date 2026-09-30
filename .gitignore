@@ -27,3 +27,7 @@ compile_commands.json
 # ---- 系统 ----
 Thumbs.db
 .DS_Store
+
+# 测试数据
+testdata/
+

@@ -48,6 +48,9 @@ qt_add_resources(ComicReader "qmlresources"
     FILES
         qml/Main.qml
         qml/ReaderView.qml
+        qml/SinglePageView.qml
+        qml/DoublePageView.qml
+        qml/WebtoonView.qml
 )
 
 # ---- 链接 Qt 库 ----

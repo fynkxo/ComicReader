@@ -2,10 +2,12 @@
 
 #include "PageCache.h"
 
+#include <QHash>
 #include <QImage>
 #include <QObject>
 #include <QQuickImageProvider>
 #include <QSet>
+#include <QSize>
 #include <QString>
 
 #include <memory>
@@ -36,6 +38,14 @@ public:
     Q_INVOKABLE void nextPage();
     Q_INVOKABLE void previousPage();
     Q_INVOKABLE void goToPage(int index);
+
+    /// 页面原始尺寸（像素）；index 越界返回无效尺寸。
+    /// 用于阅读器计算适应缩放与判断是否适合双页显示。
+    Q_INVOKABLE QSize pageSourceSize(int index) const;
+
+    /// 启发式判断：全部页面是否偏宽（宽高比 > 阈值），适合双页并排。
+    /// 扫描至多 kProbeLimit 页以保证打开速度。
+    Q_INVOKABLE bool prefersDoublePage() const;
 
     int pageCount() const;
     int currentPage() const { return m_currentPage; }
@@ -77,6 +87,8 @@ private:
     quint64 m_generation = 0;
     /// 已提交预加载的页索引，避免重复提交
     QSet<int> m_preloadScheduled;
+    /// 页面原始尺寸缓存（解码图片头成本较高）
+    mutable QHash<int, QSize> m_pageSizes;
 };
 
 /// 向 QML 提供页面图像：image://comicpage/<index>

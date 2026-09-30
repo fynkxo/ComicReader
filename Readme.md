@@ -253,7 +253,11 @@ build\ComicReader.exe --cachetest "D:\Comics\foo.cbz"
 ### 第二阶段：核心功能增强与流畅度优化
 
 * [x] 加入后台线程预加载机制与图片缓存池（LRU Cache）。
-* [ ] 实现日漫模式（双页从右往左）与条漫模式（Webtoon 垂直滚动）。
+* [x] 实现日漫模式（双页从右往左）与条漫模式（Webtoon 垂直滚动）。
+    - 顶部工具栏可随时切换「单页 / 双页 / 条漫」
+    - 双页支持日漫右起阅读（右页为奇数页）
+    - 条漫基于 `ListView` 委托复用，仅加载可视区域附近页面
+    - 新增 `pageSourceSize()` / `prefersDoublePage()` 供界面计算适应尺寸
 * [ ] 支持 `.rar`/`.cbr` 与 `.7z` 格式解析。
 * [ ] 支持实时动态切换系统语言。
 

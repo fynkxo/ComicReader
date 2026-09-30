@@ -5,6 +5,7 @@
 #include <QBuffer>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QSet>
 #include <QString>
 #include <QThreadPool>
 #include <QTimer>
@@ -18,6 +19,10 @@ constexpr int kPreloadAhead = 3;
 constexpr int kPreloadBehind = 1;
 /// 默认页面缓存上限 64 MB
 constexpr qint64 kDefaultCacheBytes = 64ll * 1024 * 1024;
+/// 判断是否适合双页时最多探测的页数
+constexpr int kProbeLimit = 12;
+/// 宽高比大于该值视为"偏宽"页面（常见跨页/双页扫描稿）
+constexpr double kWideAspectRatio = 0.95;
 
 } // namespace
 
@@ -65,6 +70,7 @@ bool ComicReaderController::openComic(const QString &path)
 
     m_cache.clear();
     m_preloadScheduled.clear();
+    m_pageSizes.clear();
     ++m_generation;   // 使之前在途的预加载结果作废
 
     emit comicChanged();
@@ -81,6 +87,7 @@ void ComicReaderController::closeComic()
     ++m_generation;
     m_preloadScheduled.clear();
     m_cache.clear();
+    m_pageSizes.clear();
     m_archive.reset();
     m_pageCount = 0;
     m_currentPage = 0;
@@ -200,6 +207,58 @@ void ComicReaderController::preloadPageInternal(int index, quint64 generation)
     // 超过缓存容量的超大页不入缓存（避免反复解压仍会命中不了）
     if (m_cache.wouldFit(data.size()))
         m_cache.insert(index, data);
+}
+
+QSize ComicReaderController::pageSourceSize(int index) const
+{
+    if (!m_archive || index < 0 || index >= m_pageCount)
+        return {};
+
+    // 尺寸探测代价高（需解码图片头），缓存结果
+    const auto it = m_pageSizes.constFind(index);
+    if (it != m_pageSizes.constEnd())
+        return it.value();
+
+    const QByteArray data = m_archive->pageData(index);
+    if (data.isEmpty())
+        return {};
+
+    QBuffer buffer;
+    buffer.setData(data);
+    buffer.open(QIODevice::ReadOnly);
+    QImageReader reader(&buffer);
+    const QSize size = reader.size();   // 仅读图片头，不解码像素
+
+    if (size.isValid())
+        m_pageSizes.insert(index, size);
+    return size;
+}
+
+bool ComicReaderController::prefersDoublePage() const
+{
+    if (!m_archive || m_pageCount <= 0)
+        return false;
+
+    // 至少两页才谈得上双页
+    if (m_pageCount < 2)
+        return false;
+
+    int checked = 0;
+    int wide = 0;
+    const int limit = qMin(m_pageCount, kProbeLimit);
+    for (int i = 0; i < limit; ++i) {
+        const QSize size = pageSourceSize(i);
+        if (!size.isValid() || size.height() <= 0)
+            continue;
+        ++checked;
+        if (double(size.width()) / double(size.height()) >= kWideAspectRatio)
+            ++wide;
+    }
+
+    if (checked == 0)
+        return false;
+    // 绝大多数页面偏宽才判定为双页漫画
+    return wide * 2 >= checked;
 }
 
 // ---------------------------------------------------------------------------
