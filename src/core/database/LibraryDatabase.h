@@ -57,7 +57,7 @@ public:
 
     // ---- 书架 ----
 
-    /// 扫描目录，导入其中的漫画（.zip/.cbz/图片文件夹），返回新增数量
+    /// 扫描目录，导入其中的漫画，返回新增数量
     /// alreadyKnown 中的路径会被跳过
     int importDirectory(const QString &dirPath, int *knownSkipped = nullptr);
 
@@ -91,6 +91,9 @@ public:
 private:
     bool ensureSchema(QString *error);
     static ComicEntry entryFromQuery(class QSqlQuery &query);
+
+    /// 递归扫描子目录（用于 Series/Vol 等嵌套结构），返回新增数量
+    int importSubtreeRecursive(const QString &dirPath, int depth, int *skipped);
 
     QSqlDatabase m_db;   ///< 值类型：QSqlDatabase 自身管理连接生命周期
     bool m_open = false;

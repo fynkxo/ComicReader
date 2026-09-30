@@ -1,4 +1,4 @@
-#include "LibraryDatabase.h"
+﻿#include "LibraryDatabase.h"
 #include "../archive/IComicArchive.h"
 #include "../metadata/ComicInfoParser.h"
 
@@ -193,6 +193,27 @@ ComicEntry LibraryDatabase::entryFromQuery(QSqlQuery &query)
     return entry;
 }
 
+namespace {
+
+/// 目录扫描的最大递归深度（Series/Vol 等层级通常 2~3 层）
+constexpr int kMaxScanDepth = 4;
+
+/// 目录内是否直接包含图片（是则该目录本身即一本漫画）
+bool dirHasImages(const QString &dirPath)
+{
+    const QFileInfoList files =
+        QDir(dirPath).entryInfoList(QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden);
+    for (const QFileInfo &f : files) {
+        if (f.fileName().startsWith(QLatin1Char('.')))
+            continue;
+        if (isImageFile(f.suffix()))
+            return true;
+    }
+    return false;
+}
+
+} // namespace
+
 int LibraryDatabase::importDirectory(const QString &dirPath, int *knownSkipped)
 {
     int added = 0;
@@ -205,35 +226,76 @@ int LibraryDatabase::importDirectory(const QString &dirPath, int *knownSkipped)
         return 0;
 
     const QFileInfoList entries =
-        dir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+        dir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden);
 
     for (const QFileInfo &info : entries) {
-        const QString path = info.absoluteFilePath();
+        const QString name = info.fileName();
+        if (name.startsWith(QLatin1Char('.')))   // 跳过隐藏项
+            continue;
+
         if (info.isDir()) {
-            // 仅当子目录直接含图片时才视为一本漫画
-            bool hasImage = false;
-            const QFileInfoList inner =
-                QDir(path).entryInfoList(QDir::Files | QDir::NoDotAndDotDot);
-            for (const QFileInfo &f : inner) {
-                if (isImageFile(f.suffix())) {
-                    hasImage = true;
-                    break;
-                }
+            if (dirHasImages(info.absoluteFilePath())) {
+                // 该目录直接含图片 => 本身是一本已解压的漫画，不再深入
+                if (importComic(info.absoluteFilePath()))
+                    ++added;
+                else
+                    ++skipped;
             }
-            if (!hasImage)
-                continue;
-        } else if (!isComicFile(info.suffix())) {
+            // 不含图片的目录（如 Series 层）由递归处理
             continue;
         }
 
-        if (importComic(path))
+        if (isComicFile(info.suffix())) {
+            if (importComic(info.absoluteFilePath()))
+                ++added;
+            else
+                ++skipped;
+        }
+    }
+
+    // 若扫描目标本身就是一本"已解压的图片文件夹"，也直接入库
+    if (dirHasImages(dirPath)) {
+        if (importComic(dirPath))
             ++added;
         else
             ++skipped;
     }
 
+    // 递归深入：处理 Series/Vol 这类嵌套结构
+    added += importSubtreeRecursive(dirPath, 1, &skipped);
+
     if (knownSkipped)
         *knownSkipped = skipped;
+    return added;
+}
+
+int LibraryDatabase::importSubtreeRecursive(const QString &dirPath, int depth, int *skipped)
+{
+    if (depth > kMaxScanDepth)
+        return 0;
+
+    int added = 0;
+    const QFileInfoList subdirs =
+        QDir(dirPath).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden);
+
+    for (const QFileInfo &sub : subdirs) {
+        if (sub.fileName().startsWith(QLatin1Char('.')))
+            continue;   // 跳过隐藏目录
+
+        const QString path = sub.absoluteFilePath();
+        if (dirHasImages(path)) {
+            // 该目录直接含图片 => 就是一本已解压的漫画
+            if (importComic(path))
+                ++added;
+            else if (skipped)
+                ++(*skipped);
+            // 已是漫画，不再深入其子目录（避免把同一本拆成多本）
+            continue;
+        }
+        // 只是分类目录（如 Series），继续向下
+        added += importSubtreeRecursive(path, depth + 1, skipped);
+    }
+
     return added;
 }
 
@@ -272,7 +334,9 @@ bool LibraryDatabase::importComic(const QString &path)
         " (path, title, size_bytes, page_count, current_page, file_modified)"
         " VALUES (?, ?, ?, ?, 0, ?)"));
     q.addBindValue(abs);
-    q.addBindValue(info.completeBaseName());
+    // 目录名整体作为标题：漫画分卷目录常命名为 "Vol.01"，
+    // completeBaseName() 会把 ".01" 当扩展名剥掉，导致标题丢失分卷号。
+    q.addBindValue(info.isDir() ? info.fileName() : info.completeBaseName());
     q.addBindValue(info.size());
     q.addBindValue(pages);
     q.addBindValue(info.lastModified().toSecsSinceEpoch());

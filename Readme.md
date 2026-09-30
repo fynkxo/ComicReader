@@ -262,6 +262,19 @@ build\ComicReader.exe --metatest "D:\Comics\some.cbz"
 - 封面由 `ComicCoverProvider` 在渲染线程按需生成，带内存缓存；
   路径经模型的线程安全快照获取，渲染线程不直接访问数据库
 
+### 已解压的图片文件夹
+
+**直接把"含图片的文件夹"当作一本漫画**，与 zip/cbz 等价对待：
+
+- **阅读**：`FolderArchiveReader` 天然支持，Ctrl+Shift+O 可直接打开
+- **入库**：扫描时"直接含图片的目录"即识别为一本
+- **递归扫描**：支持 `系列/Vol.01` 这类嵌套结构（最大深度 4 层），
+  例如 `D:\Comics\葬送のフリーレン\Vol.01\*.jpg`
+- **边界处理**：
+  - 已是漫画的目录不再深入，避免把同一本拆成多本
+  - 扫描目标本身就是图片文件夹时，也会直接入库
+  - 跳过隐藏文件/目录（`.` 开头）
+- 目录标题保留完整名称（`Vol.01` 不会被截断成 `Vol`）
 **QML 上下文属性注意事项**：`controller` / `libraryModel` / `coverProvider`
 通过 `QQmlContext::setContextProperty` 注入时，QML 中**不能声明同名 property**
 （会遮蔽上下文属性导致恒为 null），因此统一改名为 `appController` / `appLibrary` /
