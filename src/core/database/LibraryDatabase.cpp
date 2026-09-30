@@ -1,5 +1,6 @@
 #include "LibraryDatabase.h"
 #include "../archive/IComicArchive.h"
+#include "../metadata/ComicInfoParser.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -9,6 +10,7 @@
 #include <QSqlQuery>
 #include <QStandardPaths>
 #include <QVariant>
+#include <cstdio>
 
 #include <memory>
 
@@ -135,6 +137,33 @@ bool LibraryDatabase::ensureSchema(QString *error)
                           "ON comics(last_read_at)"));
     q.exec(QStringLiteral("CREATE INDEX IF NOT EXISTS idx_bookmarks_comic "
                           "ON bookmarks(comic_id)"));
+
+    // ---- 增量迁移：为旧版本数据库补充元数据列 ----
+    // SQLite 不支持 IF NOT EXISTS 列定义，需查询已有列后按需 ALTER TABLE
+    const QStringList existing = q.exec(QStringLiteral("PRAGMA table_info(comics)"))
+                                     ? [&q] {
+                                           QStringList cols;
+                                           while (q.next())
+                                               cols << q.value(1).toString();
+                                           return cols;
+                                       }()
+                                     : QStringList();
+
+    const QVector<QPair<QString, QString>> metaColumns = {
+        {QStringLiteral("series"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+        {QStringLiteral("summary"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+        {QStringLiteral("writer"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+        {QStringLiteral("publisher"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+        {QStringLiteral("language_iso"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+        {QStringLiteral("age_rating"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+        {QStringLiteral("tags"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+    };
+    for (const auto &col : metaColumns) {
+        if (!existing.contains(col.first)) {
+            q.exec(QStringLiteral("ALTER TABLE comics ADD COLUMN %1 %2")
+                       .arg(col.first, col.second));
+        }
+    }
     return true;
 }
 
@@ -153,6 +182,14 @@ ComicEntry LibraryDatabase::entryFromQuery(QSqlQuery &query)
                                          QStringLiteral("yyyy-MM-dd HH:mm:ss"));
     entry.lastReadAt = QDateTime::fromString(query.value(8).toString(),
                                              QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    // 元数据列（旧库可能缺失，QSqlQuery::value 越界返回空 QVariant）
+    entry.series = query.value(9).toString();
+    entry.summary = query.value(10).toString();
+    entry.writer = query.value(11).toString();
+    entry.publisher = query.value(12).toString();
+    entry.languageIso = query.value(13).toString();
+    entry.ageRating = query.value(14).toString();
+    entry.tags = query.value(15).toString();
     return entry;
 }
 
@@ -244,7 +281,17 @@ bool LibraryDatabase::importComic(const QString &path)
         qCWarning(lcDb) << "导入失败:" << abs << q.lastError().text();
         return false;
     }
-    return q.numRowsAffected() > 0;
+    if (q.numRowsAffected() <= 0)
+        return false;
+
+    // 解析 ComicInfo.xml（若存在）并写入元数据
+    ComicMetadata meta;
+    if (ComicInfoParser::parseFromArchive(archive.get(), &meta)) {
+        const int id = q.lastInsertId().toInt();
+        if (id > 0 && !applyMetadata(id, meta))
+            qCWarning(lcDb) << "元数据写入失败:" << abs;
+    }
+    return true;
 }
 
 QVector<ComicEntry> LibraryDatabase::allComics() const
@@ -257,7 +304,9 @@ QVector<ComicEntry> LibraryDatabase::allComics() const
     QSqlQuery q(m_db);
     q.exec(QStringLiteral(
         "SELECT id, path, title, size_bytes, page_count, current_page,"
-        "       file_modified, added_at, last_read_at"
+        "       file_modified, added_at, last_read_at,"
+        "       series, summary, writer, publisher, language_iso,"
+        "       age_rating, tags"
         " FROM comics"
         " ORDER BY (last_read_at IS NULL), last_read_at DESC, title COLLATE NOCASE"));
 
@@ -275,7 +324,9 @@ ComicEntry LibraryDatabase::comicByPath(const QString &path) const
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
         "SELECT id, path, title, size_bytes, page_count, current_page,"
-        "       file_modified, added_at, last_read_at"
+        "       file_modified, added_at, last_read_at,"
+        "       series, summary, writer, publisher, language_iso,"
+        "       age_rating, tags"
         " FROM comics WHERE path = ?"));
     q.addBindValue(QFileInfo(path).absoluteFilePath());
     if (q.exec() && q.next())
@@ -306,6 +357,57 @@ bool LibraryDatabase::removeComic(int comicId)
     q.prepare(QStringLiteral("DELETE FROM comics WHERE id = ?"));
     q.addBindValue(comicId);
     return q.exec() && q.numRowsAffected() > 0;
+}
+
+bool LibraryDatabase::applyMetadata(int comicId, const ComicMetadata &meta)
+{
+    if (!m_open || comicId <= 0)
+        return false;
+
+    QSqlQuery q(m_db);
+    // COALESCE 语义：元数据为空字符串时不覆盖已有值
+    q.prepare(QStringLiteral(
+        "UPDATE comics SET"
+        "  title       = CASE WHEN ? <> '' THEN ? ELSE title END,"
+        "  series      = CASE WHEN ? <> '' THEN ? ELSE series END,"
+        "  summary     = CASE WHEN ? <> '' THEN ? ELSE summary END,"
+        "  writer      = CASE WHEN ? <> '' THEN ? ELSE writer END,"
+        "  publisher   = CASE WHEN ? <> '' THEN ? ELSE publisher END,"
+        "  language_iso= CASE WHEN ? <> '' THEN ? ELSE language_iso END,"
+        "  age_rating  = CASE WHEN ? <> '' THEN ? ELSE age_rating END,"
+        "  tags        = CASE WHEN ? <> '' THEN ? ELSE tags END"
+        " WHERE id = ?"));
+    const QString title = meta.title;
+    const QString series = meta.series;
+    const QString summary = meta.summary;
+    const QString writer = meta.writer;
+    const QString publisher = meta.publisher;
+    const QString language = meta.languageIso;
+    const QString rating = meta.ageRating;
+    const QString tags = meta.tags.join(QStringLiteral(", "));
+
+    for (int i = 0; i < 8; ++i) {
+        QString v;
+        switch (i) {
+        case 0: v = title; break;
+        case 1: v = series; break;
+        case 2: v = summary; break;
+        case 3: v = writer; break;
+        case 4: v = publisher; break;
+        case 5: v = language; break;
+        case 6: v = rating; break;
+        default: v = tags; break;
+        }
+        q.addBindValue(v);
+        q.addBindValue(v);
+    }
+    q.addBindValue(comicId);
+
+    if (!q.exec()) {
+        qCWarning(lcDb) << "写入元数据失败:" << q.lastError().text();
+        return false;
+    }
+    return true;
 }
 
 int LibraryDatabase::count() const

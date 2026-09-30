@@ -152,13 +152,29 @@ QByteArray ZipArchiveReader::pageData(int index) const
 {
     if (index < 0 || index >= m_pageIndexes.size())
         return {};
+    return fileData(m_entries.at(m_pageIndexes.at(index)).name);
+}
+
+QByteArray ZipArchiveReader::fileData(const QString &name) const
+{
+    // 定位中央目录中的同名条目（大小写不敏感，兼容部分工具写入的大小写差异）
+    int found = -1;
+    const QString target = name.toLower();
+    for (int i = 0; i < m_entries.size(); ++i) {
+        if (m_entries.at(i).name.toLower() == target) {
+            found = i;
+            break;
+        }
+    }
+    if (found < 0)
+        return {};
 
     // m_file 非线程安全：预加载线程与 GUI 线程可能并发读取
     QMutexLocker locker(&m_mutex);
     if (!m_file.isOpen())
         return {};
 
-    const CentralEntry &entry = m_entries.at(m_pageIndexes.at(index));
+    const CentralEntry &entry = m_entries.at(found);
 
     // 定位本地文件头，跳过其中的变长字段
     if (!m_file.seek(entry.localHeaderOffset))
@@ -255,6 +271,22 @@ QByteArray FolderArchiveReader::pageData(int index) const
 
     // 每次使用独立的 QFile 实例，天然线程安全，无需加锁
     QFile file(QDir(m_dirPath).filePath(m_pages.at(index).name));
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    return file.readAll();
+}
+
+QByteArray FolderArchiveReader::fileData(const QString &name) const
+{
+    if (m_dirPath.isEmpty())
+        return {};
+
+    // 只取文件名，天然剥离目录部分，避免路径穿越
+    const QString base = QFileInfo(name).fileName();
+    if (base.isEmpty())
+        return {};
+
+    QFile file(QDir(m_dirPath).filePath(base));
     if (!file.open(QIODevice::ReadOnly))
         return {};
     return file.readAll();

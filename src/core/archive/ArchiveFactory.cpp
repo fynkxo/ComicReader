@@ -76,4 +76,11 @@ IComicArchive *createComicArchive(const QString &path)
     return new ZipArchiveReader();
 }
 
+QByteArray IComicArchive::fileData(const QString &name) const
+{
+    // 默认实现不支持读取任意条目；具体读取器按需覆盖
+    Q_UNUSED(name)
+    return {};
+}
+
 } // namespace ComicReader

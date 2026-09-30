@@ -234,6 +234,14 @@ build\ComicReader.exe --dbdump
 build\ComicReader.exe --dbsetpage <漫画id> <页码>
 ```
 
+### 元数据自检
+
+```powershell
+build\ComicReader.exe --metatest "D:\Comics\some.cbz"
+```
+
+解析归档内的 `ComicInfo.xml` 并校验字段，同时验证损坏 XML 与空内容能被拒绝。
+
 
 
 ### 性能设计
@@ -282,7 +290,10 @@ build\ComicReader.exe --dbsetpage <漫画id> <页码>
     - `comics` / `bookmarks` 两张表，书签外键级联删除
     - 打开漫画时自动入库，下次打开自动恢复到上次阅读位置
     - 数据库位于 `%APPDATA%\ComicReader\ComicReader\comicreader.db`
-* [ ] 支持读取 `ComicInfo.xml` 元数据并展示封面、作者、分类等信息。
+* [x] 支持读取 `ComicInfo.xml` 元数据并展示封面、作者、分类等信息。
+    - 解析 ComicRack 标准字段（标题/系列/作者/标签/语言/分级/日期等）
+    - 支持从 cbz 内部读取，自动写入数据库并覆盖文件名
+    - 旧数据库自动增量迁移新增列
 * [x] 添加阅读历史、进度记录、书签管理功能。
     - 进度在关闭漫画与应用退出时落盘
 

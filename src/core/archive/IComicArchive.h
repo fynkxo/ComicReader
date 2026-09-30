@@ -37,6 +37,10 @@ public:
     /// 注意：可能从后台线程调用，实现必须保证线程安全。
     virtual QByteArray pageData(int index) const = 0;
 
+    /// 按条目名读取任意文件（如 ComicInfo.xml），不存在时返回空
+    /// name 可为完整路径，大小写不敏感。
+    virtual QByteArray fileData(const QString &name) const;
+
     virtual ArchiveType type() const = 0;
 };
 
@@ -56,6 +60,7 @@ public:
     bool open(const QString &path, QString *error) override;
     QList<PageEntry> pages() const override;
     QByteArray pageData(int index) const override;
+    QByteArray fileData(const QString &name) const override;
     ArchiveType type() const override { return ArchiveType::ZipArchive; }
 
 private:
@@ -81,6 +86,7 @@ public:
     bool open(const QString &path, QString *error) override;
     QList<PageEntry> pages() const override;
     QByteArray pageData(int index) const override;
+    QByteArray fileData(const QString &name) const override;
     ArchiveType type() const override { return ArchiveType::ImageFolder; }
 
 private:

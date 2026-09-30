@@ -18,6 +18,14 @@ struct ComicEntry {
     qint64 fileModified = 0;  ///< 文件 mtime（秒），用于检测外部改动
     QDateTime addedAt;        ///< 加入书架时间
     QDateTime lastReadAt;     ///< 最近阅读时间
+    // ---- 来自 ComicInfo.xml 的元数据（可为空）----
+    QString series;           ///< 系列
+    QString summary;          ///< 简介
+    QString writer;           ///< 作者
+    QString publisher;        ///< 出版社
+    QString languageIso;      ///< 语言
+    QString ageRating;        ///< 年龄分级
+    QString tags;             ///< 标签（以 ", " 连接）
 };
 
 /// 书签
@@ -56,6 +64,12 @@ public:
     /// 导入单个漫画文件
     bool importComic(const QString &path);
 
+    /// 用 ComicInfo.xml 元数据更新书籍信息
+    bool applyMetadata(int comicId, const struct ComicMetadata &meta);
+
+    /// 书籍总数
+    int count() const;
+
     /// 全部书籍，按最近阅读时间倒序
     QVector<ComicEntry> allComics() const;
 
@@ -67,9 +81,6 @@ public:
 
     /// 从图书馆移除
     bool removeComic(int comicId);
-
-    /// 书籍总数
-    int count() const;
 
     // ---- 书签 ----
 

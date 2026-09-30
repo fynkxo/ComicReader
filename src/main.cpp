@@ -18,6 +18,7 @@
 #include "core/archive/IComicArchive.h"
 #include "core/archive/PageCache.h"
 #include "core/database/LibraryDatabase.h"
+#include "core/metadata/ComicInfoParser.h"
 
 int main(int argc, char *argv[])
 {
@@ -262,6 +263,16 @@ int main(int argc, char *argv[])
                     << " 页数=" << c.pageCount
                     << " 进度=" << (c.currentPage + 1) << "/" << c.pageCount
                     << " 书签=" << db.bookmarksFor(c.id).size() << "\n";
+                if (!c.series.isEmpty())
+                    out << "        系列: " << c.series << "\n";
+                if (!c.writer.isEmpty())
+                    out << "        作者: " << c.writer << "\n";
+                if (!c.publisher.isEmpty())
+                    out << "        出版社: " << c.publisher << "\n";
+                if (!c.tags.isEmpty())
+                    out << "        标签: " << c.tags << "\n";
+                if (!c.languageIso.isEmpty() || !c.ageRating.isEmpty())
+                    out << "        语言/分级: " << c.languageIso << " / " << c.ageRating << "\n";
                 out << "        " << c.path << "\n";
             }
             out.flush();
@@ -286,6 +297,68 @@ int main(int argc, char *argv[])
                 << (page + 1) << " 页\n";
             out.flush();
             return ok ? 0 : 1;
+        }
+        if (qstrcmp(argv[i], "--metatest") == 0) {
+            // 验证 ComicInfo.xml 解析：完整字段 + 缺失 + 损坏 XML
+            QCoreApplication app(argc, argv);
+            QTextStream out(stdout);
+            bool allOk = true;
+
+            // 1) 正常解析
+            if (i + 1 < argc) {
+                std::unique_ptr<ComicReader::IComicArchive> archive(
+                    ComicReader::createComicArchive(
+                        QFileInfo(QString::fromLocal8Bit(argv[i + 1])).absoluteFilePath()));
+                QString error;
+                if (archive && archive->open(argv[i + 1], &error)) {
+                    ComicReader::ComicMetadata meta;
+                    if (ComicReader::ComicInfoParser::parseFromArchive(archive.get(), &meta, &error)) {
+                        out << "  标题: " << meta.title << "\n";
+                        out << "  系列: " << meta.series << "\n";
+                        out << "  作者: " << meta.writer << "\n";
+                        out << "  出版社: " << meta.publisher << "\n";
+                        out << "  简介: " << meta.summary.left(40) << "...\n";
+                        out << "  标签: " << meta.tags.join(", ") << "\n";
+                        out << "  语言: " << meta.languageIso
+                            << "  分级: " << meta.ageRating << "\n";
+                        out << "  页数: " << meta.pageCount
+                            << "  发布: " << meta.publishDate.toString(Qt::ISODate) << "\n";
+                        const bool ok = !meta.title.isEmpty() && !meta.series.isEmpty()
+                                        && !meta.writer.isEmpty() && meta.pageCount == 3
+                                        && meta.tags.size() == 2
+                                        && !meta.publishDate.isNull();
+                        out << (ok ? "  [OK] 元数据字段解析正确\n"
+                                   : "  [FAIL] 字段解析不完整\n");
+                        allOk = allOk && ok;
+                    } else {
+                        out << "  [FAIL] 解析失败: " << error << "\n";
+                        allOk = false;
+                    }
+                } else {
+                    out << "  [FAIL] 打开归档失败: " << error << "\n";
+                    allOk = false;
+                }
+            }
+
+            // 2) 损坏 XML 不应崩溃
+            ComicReader::ComicMetadata dummy;
+            QString err2;
+            const bool badOk = !ComicReader::ComicInfoParser::parse(
+                QByteArray("<ComicInfo><Title>未闭合"), &dummy, &err2);
+            out << (badOk ? "  [OK] 损坏 XML 被正确拒绝\n"
+                          : "  [FAIL] 损坏 XML 未被拒绝\n");
+            allOk = allOk && badOk;
+
+            // 3) 空内容
+            ComicReader::ComicMetadata dummy2;
+            const bool emptyOk = !ComicReader::ComicInfoParser::parse(
+                QByteArray("   "), &dummy2, nullptr);
+            out << (emptyOk ? "  [OK] 空内容被正确拒绝\n" : "  [FAIL] 空内容未被拒绝\n");
+            allOk = allOk && emptyOk;
+
+            out << (allOk ? "METATEST PASSED" : "METATEST FAILED") << "\n";
+            out.flush();
+            return allOk ? 0 : 1;
         }
     }
 
