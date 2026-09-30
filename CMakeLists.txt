@@ -17,6 +17,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Qml
     Quick
     QuickControls2
+    QuickDialogs2
 )
 
 qt_standard_project_setup()
@@ -24,7 +25,19 @@ qt_standard_project_setup()
 # ---- 可执行目标 ----
 qt_add_executable(ComicReader
     src/main.cpp
+    src/core/archive/IComicArchive.h
+    src/core/archive/ArchiveFactory.cpp
+    src/core/archive/ZipArchiveReader.cpp
+    src/core/archive/ComicReaderController.h
+    src/core/archive/ComicReaderController.cpp
 )
+
+# ---- ZIP 解压依赖（zlib）----
+# 由 E:/vcpkg-export 的 vcpkg toolchain 提供（见 CMAKE_TOOLCHAIN_FILE）。
+# 注：vcpkg 的 zlib 不提供 ZLIBConfig.cmake，依赖其 wrapper 回退到 FindZLIB 模块。
+find_package(ZLIB REQUIRED)
+
+target_link_libraries(ComicReader PRIVATE ZLIB::ZLIB)
 
 # ---- QML 资源（编译进可执行文件，路径与 main.cpp 中的 qrc:/qml/Main.qml 对应）----
 # 注：Qt6 的 qt_add_executable 不会处理 .qrc 源文件，必须用 qt_add_resources。
@@ -32,6 +45,7 @@ qt_add_resources(ComicReader "qmlresources"
     PREFIX "/"
     FILES
         qml/Main.qml
+        qml/ReaderView.qml
 )
 
 # ---- 链接 Qt 库 ----
@@ -42,6 +56,7 @@ target_link_libraries(ComicReader
         Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2
+        Qt6::QuickDialogs2
 )
 
 # ---- 平台属性 ----

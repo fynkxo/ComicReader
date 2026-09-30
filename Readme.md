@@ -166,26 +166,52 @@ ComicReader/
 # 1. 进入 MSVC 开发环境并配置（首次）
 call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
 cmake -B build -G Ninja ^
+  -DCMAKE_TOOLCHAIN_FILE=E:/vcpkg-export/scripts/buildsystems/vcpkg.cmake ^
   -DCMAKE_CXX_COMPILER=cl ^
-  -DCMAKE_PREFIX_PATH=E:/vcpkg-export/installed/x64-windows ^
   -DCMAKE_BUILD_TYPE=Release
 
 # 2. 编译
 cmake --build build --config Release
 ```
 
+> 注：必须显式指定 `CMAKE_TOOLCHAIN_FILE` 指向 `E:/vcpkg-export`。
+> 本机环境变量 `CMAKE_TOOLCHAIN_FILE` 指向另一个未完成的 vcpkg 安装，
+> 若不覆盖会导致 `find_package(ZLIB)` 命中错误的 zlib。
+
 ### 运行
 
-直接双击 `run.bat`，或：
+直接双击 `run.bat`，或指定要打开的漫画：
 
 ```powershell
-.\run.bat
+.\run.bat                                  # 从书架界面打开
+build\ComicReader.exe "D:\Comics\foo.cbz"  # 直接打开指定漫画
 ```
 
 > 运行时需要以下环境变量（`run.bat` 已自动配置）：
 > - `PATH` → `%QTDIR%\bin`（Qt6 DLL）
 > - `QML_IMPORT_PATH` → `%QTDIR%\Qt6\qml`（QML 模块）
 > - `QT_PLUGIN_PATH` → `%QTDIR%\Qt6\plugins`（`qwindows.dll` 平台插件）
+
+### 归档读取器自检
+
+无需启动 GUI 即可验证解压核心逻辑：
+
+```powershell
+build\ComicReader.exe --selftest "D:\Comics\foo.cbz"
+```
+
+输出示例：
+
+```
+OK: 类型=ZIP 页数=3
+  [OK] 第1页 page01.bmp 解压=960054 字节 (期望 960054)
+  ...
+SELFTEST PASSED (3/3)
+```
+
+支持格式：`.zip` / `.cbz`（deflate 解压）与普通图片文件夹。
+页面按**自然顺序**排序（`page2` 在 `page10` 之前），自动跳过隐藏文件与
+`__MACOSX` 等系统垃圾条目。
 
 ### 已知问题
 
@@ -201,9 +227,10 @@ cmake --build build --config Release
 ### 第一阶段：MVP (最小可行性产品) - 核心阅读体验
 
 * [x] 搭建 Qt6 + CMake 跨平台基础工程骨架。
-* [ ] 实现基础解压读取器（支持加载 `.zip` / `.cbz` / 图像文件夹）。
-* [ ] 基于 QML 完成单页阅读界面，支持翻页、缩放与自适应屏幕宽度/高度。
+* [x] 实现基础解压读取器（支持加载 `.zip` / `.cbz` / 图像文件夹）。
+* [x] 基于 QML 完成单页阅读界面，支持翻页、缩放与自适应屏幕宽度/高度。
 * [ ] 集成 `QTranslator`，实现中/英/法 3 种语言的静态界面支持。
+    （界面字符串已用 `qsTr()` 包裹并提供 `.ts` 文件，待安装 `qttools` 后启用编译）
 
 ### 第二阶段：核心功能增强与流畅度优化
 
