@@ -149,5 +149,7 @@ Item {
             event.accepted = false
         }
     }
+    // 焦点默认会被工具栏按钮抢走，导致键盘翻页失效，故显式夺取焦点
     focus: true
+    Component.onCompleted: forceActiveFocus()
 }

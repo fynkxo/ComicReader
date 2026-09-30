@@ -36,6 +36,8 @@ Item {
             spacing: 10
 
             ToolButton {
+                // 工具栏按钮不参与 Tab 焦点链，避免抢走阅读区键盘焦点
+                focusPolicy: Qt.NoFocus
                 text: qsTr("Back")
                 onClicked: reader.controller.closeComic()
             }
@@ -49,6 +51,7 @@ Item {
             }
 
             Button {
+                focusPolicy: Qt.NoFocus
                 text: qsTr("Single")
                 checkable: true
                 checked: reader.readingMode === reader.modeSingle
@@ -56,6 +59,7 @@ Item {
             }
 
             Button {
+                focusPolicy: Qt.NoFocus
                 text: qsTr("Double")
                 checkable: true
                 checked: reader.readingMode === reader.modeDouble
@@ -63,6 +67,7 @@ Item {
             }
 
             Button {
+                focusPolicy: Qt.NoFocus
                 text: qsTr("Webtoon")
                 checkable: true
                 checked: reader.readingMode === reader.modeWebtoon
@@ -108,6 +113,7 @@ Item {
             spacing: 12
 
             Button {
+                focusPolicy: Qt.NoFocus
                 text: qsTr("Previous")
                 enabled: reader.controller && reader.controller.currentPage > 0
                 onClicked: reader.controller.previousPage()
@@ -124,6 +130,7 @@ Item {
             }
 
             Button {
+                focusPolicy: Qt.NoFocus
                 text: qsTr("Next")
                 enabled: reader.controller
                            && reader.controller.currentPage < reader.controller.pageCount - 1

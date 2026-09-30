@@ -221,6 +221,21 @@ build\ComicReader.exe --cachetest "D:\Comics\foo.cbz"
 
 验证 LRU 淘汰顺序、容量上限与缓存内容一致性。
 
+### 数据库自检与查看
+
+```powershell
+# 端到端验证：导入 -> 进度持久化 -> 书签 -> 级联删除（使用临时库）
+build\ComicReader.exe --dbtest "D:\Comics"
+
+# 查看当前图书馆内容（使用真实库，只读）
+build\ComicReader.exe --dbdump
+
+# 手动设置阅读进度（诊断用）
+build\ComicReader.exe --dbsetpage <漫画id> <页码>
+```
+
+
+
 ### 性能设计
 
 - **页面 LRU 缓存**：默认上限 64 MB，超出后淘汰最久未使用的页面。
@@ -263,9 +278,13 @@ build\ComicReader.exe --cachetest "D:\Comics\foo.cbz"
 
 ### 第三阶段：本地漫画库管理 (Library)
 
-* [ ] 引入 SQLite 数据库，实现漫画扫描与本地图书库构建。
+* [x] 引入 SQLite 数据库，实现漫画扫描与本地图书库构建。
+    - `comics` / `bookmarks` 两张表，书签外键级联删除
+    - 打开漫画时自动入库，下次打开自动恢复到上次阅读位置
+    - 数据库位于 `%APPDATA%\ComicReader\ComicReader\comicreader.db`
 * [ ] 支持读取 `ComicInfo.xml` 元数据并展示封面、作者、分类等信息。
-* [ ] 添加阅读历史、进度记录、书签管理功能。
+* [x] 添加阅读历史、进度记录、书签管理功能。
+    - 进度在关闭漫画与应用退出时落盘
 
 ### 第四阶段：高级特性与跨平台打包发布
 

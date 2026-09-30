@@ -1,6 +1,7 @@
 #include "ComicReaderController.h"
 #include "IComicArchive.h"
 #include "PageCache.h"
+#include "../database/LibraryDatabase.h"
 
 #include <QBuffer>
 #include <QFileInfo>
@@ -9,6 +10,7 @@
 #include <QString>
 #include <QThreadPool>
 #include <QTimer>
+#include <cstdio>
 
 namespace ComicReader {
 
@@ -66,6 +68,7 @@ bool ComicReaderController::openComic(const QString &path)
     m_pageCount = m_archive->pages().size();
     m_currentPage = 0;
     m_comicName = QFileInfo(path).fileName();
+    m_comicPath = QFileInfo(path).absoluteFilePath();
     m_statusMessage = tr("Loaded %n page(s)", nullptr, m_pageCount);
 
     m_cache.clear();
@@ -73,16 +76,46 @@ bool ComicReaderController::openComic(const QString &path)
     m_pageSizes.clear();
     ++m_generation;   // 使之前在途的预加载结果作废
 
+    // 关联数据库记录，并恢复到上次阅读位置
+    m_comicId = -1;
+    if (m_db && m_db->isOpen()) {
+        m_db->importComic(path);   // 未入库的自动加入书架
+        const ComicEntry entry = m_db->comicByPath(QFileInfo(path).absoluteFilePath());
+        m_comicId = entry.id;
+        if (entry.id > 0 && entry.currentPage > 0 && entry.currentPage < m_pageCount) {
+            m_currentPage = entry.currentPage;
+        }
+    }
+
     emit comicChanged();
     emit currentPageChanged();
     emit statusMessageChanged();
     return true;
 }
 
+void ComicReaderController::saveProgress()
+{
+    if (!m_db || !m_db->isOpen() || m_comicId <= 0 || m_pageCount <= 0)
+        return;
+    m_db->updateProgress(m_comicId, m_currentPage);
+}
+
+int ComicReaderController::savedPageFor(const QString &path) const
+{
+    if (!m_db || !m_db->isOpen())
+        return 0;
+    const ComicEntry entry = m_db->comicByPath(path);
+    if (entry.id <= 0)
+        return 0;
+    return qBound(0, entry.currentPage, qMax(0, entry.pageCount - 1));
+}
+
 void ComicReaderController::closeComic()
 {
     if (!m_archive)
         return;
+    // 关闭前保存阅读进度
+    saveProgress();
     // 先递增代次并清空标记，使在途预加载结果不再写入缓存
     ++m_generation;
     m_preloadScheduled.clear();
@@ -92,6 +125,8 @@ void ComicReaderController::closeComic()
     m_pageCount = 0;
     m_currentPage = 0;
     m_comicName.clear();
+    m_comicPath.clear();
+    m_comicId = -1;
     emit comicChanged();
     emit currentPageChanged();
 }

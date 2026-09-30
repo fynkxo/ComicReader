@@ -31,3 +31,4 @@ Thumbs.db
 # 测试数据
 testdata/
 
+*.log

@@ -1,5 +1,9 @@
-#include <QCommandLineParser>
+﻿#include <QCommandLineParser>
+#include <cstdio>
+#include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -13,6 +17,7 @@
 #include "core/archive/ComicReaderController.h"
 #include "core/archive/IComicArchive.h"
 #include "core/archive/PageCache.h"
+#include "core/database/LibraryDatabase.h"
 
 int main(int argc, char *argv[])
 {
@@ -158,6 +163,130 @@ int main(int argc, char *argv[])
             out.flush();
             return allOk ? 0 : 1;
         }
+        if (qstrcmp(argv[i], "--dbtest") == 0) {
+            // 验证 SQLite 图书馆：导入 -> 进度持久化 -> 书签 -> 级联删除
+            // 注意：SQL 驱动插件的加载依赖 QCoreApplication 实例，
+            // 而本分支在 QGuiApplication 构造之前返回，需就地创建。
+            QCoreApplication app(argc, argv);
+            QTextStream out(stdout);
+            if (i + 1 >= argc) {
+                out << "FAIL: --dbtest 需要提供漫画目录\n";
+                return 2;
+            }
+            const QString comicDir =
+                QFileInfo(QString::fromLocal8Bit(argv[i + 1])).absoluteFilePath();
+            const QString dbPath =
+                QDir(QDir::tempPath()).filePath(QStringLiteral("comicreader_dbtest.db"));
+            QFile::remove(dbPath);   // 从干净状态开始
+
+            ComicReader::LibraryDatabase db;
+            QString error;
+            if (!db.open(dbPath, &error)) {
+                out << "FAIL: 打开数据库失败: " << error << "\n";
+                return 2;
+            }
+            out << "数据库: " << dbPath << "\n";
+
+            int skipped = 0;
+            const int added = db.importDirectory(comicDir, &skipped);
+            out << "导入: 新增 " << added << " 本, 跳过 " << skipped << " 项, 库中共 "
+                << db.count() << " 本\n";
+            if (added <= 0) {
+                out << "FAIL: 未导入任何漫画\n";
+                return 1;
+            }
+
+            // 进度持久化：写入后立即重开数据库验证落盘
+            const auto comics = db.allComics();
+            if (comics.isEmpty()) {
+                out << "FAIL: 列表为空\n";
+                return 1;
+            }
+            const ComicReader::ComicEntry first = comics.first();
+            out << "首本: " << first.title << " (" << first.pageCount << " 页)\n";
+
+            if (!db.updateProgress(first.id, 3)) {
+                out << "FAIL: 写入进度失败\n";
+                return 1;
+            }
+            db.close();
+
+            ComicReader::LibraryDatabase db2;
+            if (!db2.open(dbPath, &error)) {
+                out << "FAIL: 重开数据库失败: " << error << "\n";
+                return 2;
+            }
+            const ComicReader::ComicEntry reread = db2.comicByPath(first.path);
+            const bool progressOk = reread.currentPage == 3;
+            out << (progressOk ? "  [OK] 进度已持久化 (current_page=3)\n"
+                               : "  [FAIL] 进度未持久化\n");
+
+            // 书签 + 外键级联删除
+            const bool bmAdd = db2.addBookmark(first.id, 1, QStringLiteral("test"));
+            const int bmCount = db2.bookmarksFor(first.id).size();
+            out << (bmAdd && bmCount == 1 ? "  [OK] 书签已添加\n"
+                                          : "  [FAIL] 书签添加失败\n");
+
+            db2.removeComic(first.id);
+            const int bmAfter = db2.bookmarksFor(first.id).size();
+            out << (bmAfter == 0 ? "  [OK] 删除漫画时书签级联清理\n"
+                                  : "  [FAIL] 书签未级联删除\n");
+            db2.close();
+            QFile::remove(dbPath);
+
+            const bool allOk = progressOk && bmAdd && bmCount == 1 && bmAfter == 0;
+            out << (allOk ? "DBTEST PASSED" : "DBTEST FAILED") << "\n";
+            out.flush();
+            return allOk ? 0 : 1;
+        }
+        if (qstrcmp(argv[i], "--dbdump") == 0) {
+            // 打印当前图书馆内容（诊断用）
+            QCoreApplication app(argc, argv);
+            // 必须与 GUI 模式设置一致，否则 defaultDatabasePath() 会解析到不同位置
+            QCoreApplication::setOrganizationName(QStringLiteral("ComicReader"));
+            QCoreApplication::setOrganizationDomain(QStringLiteral("comicreader.local"));
+            QCoreApplication::setApplicationName(QStringLiteral("ComicReader"));
+            QTextStream out(stdout);
+            ComicReader::LibraryDatabase db;
+            QString error;
+            const QString path = ComicReader::LibraryDatabase::defaultDatabasePath();
+            if (!db.open(path, &error)) {
+                out << "FAIL: 打开数据库失败: " << error << "\n";
+                return 2;
+            }
+            out << "数据库: " << path << "\n";
+            out << "共 " << db.count() << " 本\n";
+            const auto comics = db.allComics();
+            for (const ComicReader::ComicEntry &c : comics) {
+                out << "  [" << c.id << "] " << c.title
+                    << " 页数=" << c.pageCount
+                    << " 进度=" << (c.currentPage + 1) << "/" << c.pageCount
+                    << " 书签=" << db.bookmarksFor(c.id).size() << "\n";
+                out << "        " << c.path << "\n";
+            }
+            out.flush();
+            return 0;
+        }
+        if (qstrcmp(argv[i], "--dbsetpage") == 0 && i + 2 < argc) {
+            QCoreApplication app(argc, argv);
+            QCoreApplication::setOrganizationName(QStringLiteral("ComicReader"));
+            QCoreApplication::setOrganizationDomain(QStringLiteral("comicreader.local"));
+            QCoreApplication::setApplicationName(QStringLiteral("ComicReader"));
+            QTextStream out(stdout);
+            ComicReader::LibraryDatabase db;
+            QString error;
+            if (!db.open(ComicReader::LibraryDatabase::defaultDatabasePath(), &error)) {
+                out << "FAIL: " << error << "\n";
+                return 2;
+            }
+            const int id = QString::fromLocal8Bit(argv[i + 1]).toInt();
+            const int page = QString::fromLocal8Bit(argv[i + 2]).toInt();
+            const bool ok = db.updateProgress(id, page);
+            out << (ok ? "已设置漫画 " : "设置失败 ") << id << " 进度为第 "
+                << (page + 1) << " 页\n";
+            out.flush();
+            return ok ? 0 : 1;
+        }
     }
 
     QGuiApplication app(argc, argv);
@@ -197,8 +326,19 @@ int main(int argc, char *argv[])
         QStringLiteral("Comic archive (.zip/.cbz) or image folder to open."));
     parser.process(app);
 
+    // 打开图书馆数据库（失败不影响阅读功能，仅失去进度记忆）
+    ComicReader::LibraryDatabase library;
+    QString dbError;
+    if (!library.open(ComicReader::LibraryDatabase::defaultDatabasePath(), &dbError))
+        qWarning() << "打开数据库失败，进度记忆不可用:" << dbError;
+
     // 创建阅读控制器并注入 QML 上下文
     ComicReader::ComicReaderController controller;
+    controller.setDatabase(library.isOpen() ? &library : nullptr);
+
+    // 退出前保存进度
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &controller,
+                     [&controller] { controller.saveProgress(); });
 
     // 若命令行指定了漫画，加载后让 QML 初始直接进入阅读界面
     bool initialLoaded = false;

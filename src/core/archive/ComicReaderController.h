@@ -15,6 +15,7 @@
 namespace ComicReader {
 
 class IComicArchive;
+class LibraryDatabase;
 
 /// 漫画阅读控制器：向 QML 暴露页数、翻页与页图像
 class ComicReaderController : public QObject
@@ -38,6 +39,18 @@ public:
     Q_INVOKABLE void nextPage();
     Q_INVOKABLE void previousPage();
     Q_INVOKABLE void goToPage(int index);
+
+    /// 把当前进度写入数据库（下次打开可继续阅读）
+    Q_INVOKABLE void saveProgress();
+
+    /// 当前漫画在数据库中的 id，-1 表示未入库
+    Q_INVOKABLE int comicId() const { return m_comicId; }
+
+    /// 打开漫画时若数据库中已有进度，自动跳转
+    Q_INVOKABLE int savedPageFor(const QString &path) const;
+
+    /// 注入数据库（不持有所有权；为 nullptr 时功能降级但不崩溃）
+    void setDatabase(LibraryDatabase *db) { m_db = db; }
 
     /// 页面原始尺寸（像素）；index 越界返回无效尺寸。
     /// 用于阅读器计算适应缩放与判断是否适合双页显示。
@@ -89,6 +102,12 @@ private:
     QSet<int> m_preloadScheduled;
     /// 页面原始尺寸缓存（解码图片头成本较高）
     mutable QHash<int, QSize> m_pageSizes;
+    /// 当前漫画在数据库中的 id，-1 表示未入库
+    int m_comicId = -1;
+    /// 当前漫画的绝对路径（用于关联数据库记录）
+    QString m_comicPath;
+    /// 数据库（非拥有指针，可为 nullptr）
+    LibraryDatabase *m_db = nullptr;
 };
 
 /// 向 QML 提供页面图像：image://comicpage/<index>

@@ -154,7 +154,9 @@ Item {
         }
     }
 
-    // 键盘
+    // 键盘：左右翻页，+/-/0 缩放
+    Keys.onLeftPressed: if (single.controller) single.controller.previousPage()
+    Keys.onRightPressed: if (single.controller) single.controller.nextPage()
     Keys.onPressed: function (event) {
         if (!single.controller || single.controller.pageCount <= 0) {
             event.accepted = false
@@ -170,5 +172,8 @@ Item {
             event.accepted = false
         }
     }
+
+    // 焦点默认会被工具栏按钮抢走，导致键盘翻页失效，故显式夺取焦点
     focus: true
+    Component.onCompleted: forceActiveFocus()
 }

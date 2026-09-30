@@ -18,6 +18,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Quick
     QuickControls2
     QuickDialogs2
+    Sql
 )
 
 qt_standard_project_setup()
@@ -32,6 +33,8 @@ qt_add_executable(ComicReader
     src/core/archive/ComicReaderController.cpp
     src/core/archive/PageCache.h
     src/core/archive/PageCache.cpp
+    src/core/database/LibraryDatabase.h
+    src/core/database/LibraryDatabase.cpp
 )
 
 # ---- ZIP 解压依赖（zlib）----
@@ -62,6 +65,7 @@ target_link_libraries(ComicReader
         Qt6::Quick
         Qt6::QuickControls2
         Qt6::QuickDialogs2
+        Qt6::Sql
 )
 
 # ---- 平台属性 ----
