@@ -1,0 +1,29 @@
+# ---- 构建产物 ----
+build/
+build-*/
+out/
+*.user
+
+# ---- CMake ----
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+compile_commands.json
+
+# ---- Qt ----
+*.qm
+*.pro.user
+.qmake.stash
+
+# ---- IDE ----
+.vs/
+.vscode/
+.idea/
+*.suo
+*.userosscache
+
+# ---- 系统 ----
+Thumbs.db
+.DS_Store
